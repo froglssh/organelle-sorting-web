@@ -206,6 +206,8 @@ table.sum td:nth-child(2){white-space:nowrap;color:#C9612A;font-weight:600}
 .piece.sel .hl{opacity:1}
 .slotg{cursor:pointer}
 .slotg:hover .slot{stroke-width:3;opacity:1!important}
+.fb.rev{background:var(--warn-soft);border-color:var(--warn)} .fb.rev h4{color:var(--warn)}
+.fb .left{font-size:14px;color:var(--ink-3)}
 </style>
 </head>
 <body>
@@ -235,6 +237,7 @@ table.sum td:nth-child(2){white-space:nowrap;color:#C9612A;font-weight:600}
         <li><span class="n">1</span><span>建議先看<b>圖解教學</b>（10 張圖卡，圖片都取自課本與簡報），再進入 <b>11 道關卡</b>。</span></li>
         <li><span class="n">2</span><span>操作題可以<b>用拖的</b>，也可以<b>先點一個零件、再點目標位置</b>；手機上點兩下比較穩。</span></li>
         <li><span class="n">3</span><span>答錯不會擋住你，但每一關試了幾次都會記錄下來，最後變成一張<b>學習診斷卡</b>，請截圖交給老師。</span></li>
+        <li><span class="n">4</span><span>答錯不會擋住你：同一題答錯 <b>5 次</b>（點圖題是點錯 5 次），就會<b>自動顯示答案</b>並附上解析。是否看了答案也會記錄在學習診斷卡上。</span></li>
       </ul>
       <div class="fields">
         <div class="field"><label for="f-name">姓名</label><input id="f-name" type="text" autocomplete="off" placeholder="王小明"></div>
@@ -613,6 +616,8 @@ const STAGES=[
 <script>
 const el=id=>document.getElementById(id);
 const KEY='cytoplasmgame.v1';
+const REVEAL_N=5;   /* 答錯幾次後自動顯示答案 */
+const SOLS={"細胞質裡有什麼？": {"m00": "er", "m01": "go", "m10": "va", "m11": "mi", "m20": "ch", "m21": "ly", "n0": "ri", "n1": "ce", "c0": "so"}, "植物細胞多了什麼？": {"p0": "ch", "p1": "cw", "p2": "cv", "b0": "mi", "b1": "er", "b2": "go", "b3": "ri", "b4": "pm"}, "兩種液泡": {"n1": "cv", "f1": "fa", "n2": "ce", "f2": "fb"}, "兩座發電廠的構造": {"m_out": "o1", "m_in": "i1", "m_mx": "x1", "c_out": "o2", "c_in": "i2", "c_gr": "gr", "c_mx": "x2", "c_th": "th"}, "數一數有幾層膜": {"d0": "mi", "d1": "ch", "s0": "er", "s1": "go", "s2": "va", "s3": "ly", "z0": "ri", "z1": "ce"}};
 let ST={idx:0,tries:{},tags:{},who:{n:'',c:'',s:''},t0:0,done:false};
 let place={},sel=null,answered=false,pick=new Set(),order=[],layout={};
 function save(){try{localStorage.setItem(KEY,JSON.stringify(ST))}catch(e){}}
@@ -727,6 +732,22 @@ function show(i){
   renderPanel(s);renderBoard(s);drawTrack();save();window.scrollTo({top:0,behavior:'smooth'});
 }
 function addTags(t){(t||[]).forEach(x=>{ST.tags[x]=(ST.tags[x]||0)+1})}
+const solOf=s=>{if(s.sol)return s.sol;if(SOLS[s.t])return SOLS[s.t];const o={};s.slots.forEach(x=>{if(s.pieces.some(p=>p.id===x.id))o[x.id]=x.id});return o;};
+function revealAnswer(s){
+  if(s.kind==='drag'){place=Object.assign({},solOf(s));sel=null;syncBoard();}
+  else if(s.opts){pick=new Set(s.opts.map((o,i)=>o.ok?i:-1).filter(i=>i>=0));}
+  passE1(s,true);
+}
+function passE1(s,rev){
+  answered=true;ST.passed=ST.passed||{};ST.passed[ST.idx]=true;
+  if(rev){ST.revealed=ST.revealed||{};ST.revealed[ST.idx]=true;}
+  el('q-fb').innerHTML=(rev?`<div class="fb rev"><h4>答案已顯示</h4><p>已答錯 ${REVEAL_N} 次，正確答案已經自動顯示，請對照答案再讀一次解析：</p><p>${s.why}</p></div>`:`<div class="fb ok"><h4>✓ 正確</h4><p>${s.why}</p></div>`)+refHTML(s.refs);bindZoom(el('q-fb'));
+  el('check-btn').classList.add('hidden');el('reset-btn').classList.add('hidden');el('next-btn').classList.remove('hidden');
+  el('next-btn').textContent=ST.idx===STAGES.length-1?'看我的診斷卡 →':'下一步 →';
+  el('barmsg').textContent=rev?`第 ${ST.idx+1} 關已顯示答案　·　共嘗試 ${ST.tries[ST.idx]} 次`:`第 ${ST.idx+1} 關過關　·　共嘗試 ${ST.tries[ST.idx]} 次`;
+  document.querySelectorAll('.opt').forEach(b=>{b.disabled=true;b.classList.toggle('sel',false);if(s.opts&&s.opts[+b.dataset.i].ok)b.classList.add('right')});
+  drawTrack();save();
+}
 function check(){
   const s=STAGES[ST.idx];if(answered)return;let r;
   if(s.kind==='drag'){const m={};s.slots.forEach(x=>{m[x.id]=place[x.id]?s.pieces.find(p=>p.id===place[x.id]):null});r=s.check(m);}
@@ -739,15 +760,11 @@ function check(){
     document.querySelectorAll('.opt').forEach(b=>{const i=+b.dataset.i;if(pick.has(i))b.classList.add(s.opts[i].ok?'right':'wrong')});
     if(!ok)setTimeout(()=>document.querySelectorAll('.opt').forEach(b=>b.classList.remove('wrong','right')),1400);}
   ST.tries[ST.idx]=(ST.tries[ST.idx]||0)+1;
-  if(r.ok){answered=true;ST.passed=ST.passed||{};ST.passed[ST.idx]=true;
-    el('q-fb').innerHTML=`<div class="fb ok"><h4>✓ 正確</h4><p>${s.why}</p></div>`+refHTML(s.refs);bindZoom(el('q-fb'));
-    el('check-btn').classList.add('hidden');el('next-btn').classList.remove('hidden');
-    el('next-btn').textContent=ST.idx===STAGES.length-1?'看我的診斷卡 →':'下一步 →';
-    el('barmsg').textContent=`第 ${ST.idx+1} 關過關　·　共嘗試 ${ST.tries[ST.idx]} 次`;
-    document.querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(s.opts&&s.opts[+b.dataset.i].ok)b.classList.add('right')});
+  if(r.ok){passE1(s);
   }else{addTags(r.tags);
+    if(ST.tries[ST.idx]>=REVEAL_N){revealAnswer(s);return;}
     const tg=(r.tags||[]).map(t=>`<span class="tag">${TAGS[t][0]}</span>`).join('');
-    el('q-fb').innerHTML=`<div class="fb no"><h4>再試一次</h4><p>${r.msg||'還沒對。'}</p>${tg?`<p>${tg}</p>`:''}</div>`+(s.preRefs?refHTML(s.preRefs):'');bindZoom(el('q-fb'));
+    el('q-fb').innerHTML=`<div class="fb no"><h4>再試一次</h4><p>${r.msg||'還沒對。'}</p>${tg?`<p>${tg}</p>`:''}<p class="left">再答錯 ${REVEAL_N-ST.tries[ST.idx]} 次，就會自動顯示答案。</p></div>`+(s.preRefs?refHTML(s.preRefs):'');bindZoom(el('q-fb'));
     el('barmsg').textContent=`已嘗試 ${ST.tries[ST.idx]} 次`;}
   drawTrack();save();
 }
@@ -757,7 +774,7 @@ function finish(){
   ['play','bar'].forEach(x=>el(x).classList.add('hidden'));
   const mins=Math.max(1,Math.round((Date.now()-ST.t0)/60000)),tr=STAGES.map((s,i)=>ST.tries[i]||0);
   const one=tr.filter(t=>t===1).length,two=tr.filter(t=>t===2).length,hard=tr.filter(t=>t>=3).length,w=ST.who;
-  const rows=STAGES.map((s,i)=>{const t=tr[i],c=t>=3?'t3':t===2?'t2':'t1';return `<div class="row ${c}"><span class="i">${String(i+1).padStart(2,'0')}</span><span>${s.t}</span><span class="m">${t} 次</span></div>`}).join('');
+  const RV=ST.revealed||{};const rows=STAGES.map((s,i)=>{const t=tr[i],c=(t>=3||RV[i])?'t3':t===2?'t2':'t1';return `<div class="row ${c}"><span class="i">${String(i+1).padStart(2,'0')}</span><span>${s.t}${RV[i]?'<span class="tag" style="margin-left:8px">看了答案</span>':''}</span><span class="m">${t} 次</span></div>`}).join('');
   const mk=Object.keys(ST.tags).sort((a,b)=>ST.tags[b]-ST.tags[a]);
   const miss=mk.length?mk.map(k=>`<div class="mi"><b>${TAGS[k][0]}　<span>觸發 ${ST.tags[k]} 次</span></b>${TAGS[k][1]}<br><span>回頭看：${TAGS[k][2]}</span></div>`).join('')
     :`<div class="clean">沒有觸發任何迷思概念——十一關的每一個判斷都一次到位。</div>`;
@@ -766,6 +783,7 @@ function finish(){
     <div class="stats"><div class="stat"><div class="v" style="color:var(--ok)">${one}</div><div class="l">一次過關</div></div>
       <div class="stat"><div class="v" style="color:var(--warn)">${two}</div><div class="l">試了 2 次</div></div>
       <div class="stat"><div class="v" style="color:var(--no)">${hard}</div><div class="l">試了 3 次以上</div></div>
+      <div class="stat"><div class="v" style="color:var(--warn)">${Object.keys(ST.revealed||{}).length}</div><div class="l">看了答案</div></div>
       <div class="stat"><div class="v">${tr.reduce((a,b)=>a+b,0)}</div><div class="l">總作答次數</div></div></div>
     <h3 class="sec">逐關紀錄</h3><div class="rows">${rows}</div>
     <h3 class="sec">需要回頭補的觀念</h3><div class="miss">${miss}</div>
